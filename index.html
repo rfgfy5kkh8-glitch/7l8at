@@ -164,6 +164,9 @@ textarea{min-height:96px;resize:vertical}
 .spacer{height:84px}
 
 /* v2 additions */
+.f{display:block;margin-bottom:10px}.f span{display:block;font-size:.85rem;color:var(--ink2)}
+.ok{color:var(--ok)}
+
 .foot{margin:34px 0 0;text-align:center}
 .lnk{background:none;border:0;color:var(--ink3);text-decoration:underline;min-height:44px;padding:0 12px}
 input[type=password]{width:100%;min-height:44px;border:1px solid var(--line);border-radius:10px;background:var(--bg);padding:8px 10px}
@@ -489,6 +492,15 @@ function viewSettings(){
    +'<p class="note">التسميع المطلوب دائمًا ١٠٠٪ من المقرر. نقطة الجمال الكاملة تعني أن الطالب ضاعف المطلوب في الثلاثة معًا.</p></div>';
   h+='<div class="panel"><h2>العرض</h2><label class="chk"><input type="checkbox" data-setb="showIndividual"'+(S.showIndividual?' checked':'')+'>إظهار الأداء الفردي للطلاب</label><div class="kv" style="margin-top:8px"><label for="tt">عنوان الصفحة</label><input id="tt" type="text" data-title value="'+esc(state.title)+'"></div></div>';
   h+='<div class="panel"><h2>البيانات</h2><div class="row"><button class="btn ghost" data-act="demo">تحميل بيانات تجريبية</button><button class="btn danger" data-act="reset">'+(ui.confirm==='reset'?'اضغط مرة ثانية للتأكيد':'مسح كل الطلاب والنتائج')+'</button></div><p class="note">لا يتغير شيء للطلاب حتى تنزّل الملف المحدّث وترفعه للاستضافة.</p></div>';
+  var g=ghCfg()||ghGuess();
+  h+='<div class="panel"><h2>النشر المباشر على GitHub</h2><p class="note" style="margin:0 0 10px">بدل رفع الملف يدويًا، يرسل الموقع التحديث لمستودعك بضغطة «نشر التعديلات». الرمز يُحفظ في هذا المتصفح فقط ولا يدخل الملف.</p>'
+   +(ghReady()?'<p class="ok" style="margin:0 0 10px">مربوط بـ '+esc(g.owner)+'/'+esc(g.repo)+'</p>':'')
+   +'<label class="f"><span>اسم حسابك في GitHub</span><input type="text" id="gh_o" dir="ltr" autocapitalize="off" value="'+esc(g.owner||'')+'"></label>'
+   +'<label class="f"><span>اسم المستودع</span><input type="text" id="gh_r" dir="ltr" autocapitalize="off" value="'+esc(g.repo||'')+'"></label>'
+   +'<label class="f"><span>الفرع</span><input type="text" id="gh_b" dir="ltr" autocapitalize="off" value="'+esc(g.branch||'main')+'"></label>'
+   +'<label class="f"><span>الرمز (Token)</span><input type="password" id="gh_t" dir="ltr" autocomplete="off" placeholder="'+(g.token?'محفوظ، اتركه فارغًا للإبقاء عليه':'github_pat_…')+'"></label>'
+   +'<div class="row"><button class="btn sm" data-act="ghsave">حفظ الربط</button>'+(ghReady()?'<button class="btn danger sm" data-act="ghclear">إزالة الربط</button>':'')+'</div></div>';
+  h+='<div class="panel"><h2>استيراد بيانات سابقة</h2><p class="note" style="margin:0 0 10px">اختر ملف index.html قديم (فيه بياناتك) وسيُحمَّل ما فيه من طلاب ونتائج.</p><input type="file" id="impfile" accept=".html,text/html"></div>';
   h+='<div class="panel"><h2>كلمة سر المشرف</h2><div class="kv"><input id="newpw" type="password" aria-label="كلمة سر جديدة" placeholder="كلمة سر جديدة"><button class="btn sm" data-act="setpw">حفظ</button></div><p class="note">قفل بسيط للواجهة فقط. الحماية الحقيقية أن الملف على استضافتك وحدك.</p></div>';
   return h;
 }
@@ -633,7 +645,7 @@ function render(){
 function renderBar(){
   if(!isAdmin||(!dirty&&!msg)){$bar.innerHTML='';return;}
   $bar.innerHTML='<div class="pubbar"><span>'+(msg?esc(msg):'تغييرات لم تُحفظ في الملف بعد')+'</span>'
-    +(dirty?'<button class="btn ghost sm" data-act="discard">تراجع</button><button class="btn sm" data-act="download">تنزيل الملف المحدّث</button>':'<button class="btn ghost sm" data-act="dismiss">حسنًا</button>')+'</div>';
+    +(dirty?'<button class="btn ghost sm" data-act="discard">تراجع</button><button class="btn sm" data-act="download"'+(busy?' disabled':'')+'>'+(ghReady()?'نشر التعديلات':'تنزيل الملف المحدّث')+'</button>':'<button class="btn ghost sm" data-act="dismiss">حسنًا</button>')+'</div>';
 }
 function touch(){dirty=true;try{localStorage.setItem(DK,JSON.stringify({base:PUB.rev||0,state:state}));}catch(e){}}
 function peekDraft(){
@@ -655,11 +667,45 @@ function buildDoc(){
   c.querySelector('#state').textContent=JSON.stringify(state).replace(/</g,'\\u003c');
   return '<!doctype html>\n'+c.outerHTML;
 }
-function downloadUpdated(){
+var GHK='bunyan_gh';
+function ghCfg(){try{return JSON.parse(localStorage.getItem(GHK)||'null');}catch(e){return null;}}
+function ghGuess(){
+  var h=location.hostname,p=location.pathname.split('/').filter(Boolean),o='',r='';
+  if(/\.github\.io$/.test(h)){o=h.split('.')[0];if(p[0]&&!/\.html?$/.test(p[0]))r=p[0];}
+  return {owner:o,repo:r,branch:'main',path:'index.html',token:''};
+}
+function ghReady(){var c=ghCfg();return !!(c&&c.owner&&c.repo&&c.token);}
+function toB64(str){var b=new TextEncoder().encode(str),bin='';for(var i=0;i<b.length;i+=32768)bin+=String.fromCharCode.apply(null,b.subarray(i,i+32768));return btoa(bin);}
+async function ghPublish(html){
+  var c=ghCfg(),br=c.branch||'main',pth=(c.path||'index.html').split('/').map(encodeURIComponent).join('/');
+  var url='https://api.github.com/repos/'+encodeURIComponent(c.owner)+'/'+encodeURIComponent(c.repo)+'/contents/'+pth;
+  var H={'Authorization':'Bearer '+c.token,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'};
+  var g=await fetch(url+'?ref='+encodeURIComponent(br),{headers:H}),sha=null;
+  if(g.ok)sha=(await g.json()).sha;else if(g.status!==404)throw {status:g.status};
+  var body={message:'تحديث بنيان مرصوص',content:toB64(html),branch:br};
+  if(sha)body.sha=sha;
+  var r=await fetch(url,{method:'PUT',headers:Object.assign({'Content-Type':'application/json'},H),body:JSON.stringify(body)});
+  if(!r.ok)throw {status:r.status};
+}
+async function downloadUpdated(){
+  if(busy)return;
   state.rev=(PUB.rev||0)+1;
   try{localStorage.setItem(DK,JSON.stringify({base:PUB.rev||0,state:state}));}catch(e){}
-  saveFile('index.html',new Blob([buildDoc()],{type:'text/html;charset=utf-8'}));
-  flash('نزل الملف باسم index.html. ارفعه مكان القديم في الاستضافة ليراه الطلاب.',9000);
+  var html=buildDoc();
+  if(!ghReady()){
+    saveFile('index.html',new Blob([html],{type:'text/html;charset=utf-8'}));
+    flash('نزل الملف باسم index.html. ارفعه مكان القديم في الاستضافة ليراه الطلاب.',9000);
+    return;
+  }
+  busy=true;flash('جارٍ النشر…',60000);
+  try{
+    await ghPublish(html);
+    busy=false;dirty=false;render();
+    flash('تم النشر. يظهر للطلاب خلال دقيقة تقريبًا.',9000);
+  }catch(e){
+    busy=false;var c=e&&e.status;
+    flash(c===401||c===403?'الرمز غير صالح أو تنقصه صلاحية Contents.':c===404?'المستودع أو الفرع غير صحيح، راجع الإعدادات.':c===409||c===422?'تعارض في الحفظ، حاول مرة ثانية.':'تعذّر الاتصال بـ GitHub.',9000);
+  }
 }
 
 /* ---------- admin lock ---------- */
@@ -732,6 +778,14 @@ function act(a,d){
   else if(a==='certall'){exportCerts(true);return;}
   else if(a==='csv'){exportCSV(calc());return;}
   else if(a==='download'){downloadUpdated();return;}
+  else if(a==='ghsave'){
+    var v=function(id){var e=document.getElementById(id);return e?e.value.trim():'';};
+    var oldc=ghCfg()||{};
+    var cfg={owner:v('gh_o'),repo:v('gh_r'),branch:v('gh_b')||'main',path:'index.html',token:v('gh_t')||oldc.token||''};
+    try{localStorage.setItem(GHK,JSON.stringify(cfg));}catch(e){}
+    render();flash(ghReady()?'تم حفظ الربط':'أكمل الحقول الناقصة');return;
+  }
+  else if(a==='ghclear'){try{localStorage.removeItem(GHK);}catch(e){}render();flash('أُزيل الربط');return;}
   else if(a==='login'){ui.login=true;}
   else if(a==='cancel'){ui.login=false;}
   else if(a==='dologin'){
@@ -770,6 +824,20 @@ document.addEventListener('input',function(e){
 });
 document.addEventListener('change',function(e){
   var el=e.target;if(!isAdmin)return;var d=el.dataset;
+  if(el.id==='impfile'){
+    var f=el.files&&el.files[0];if(!f)return;
+    var fr=new FileReader();
+    fr.onload=function(){
+      try{
+        var m=String(fr.result).match(/id="state">([\s\S]*?)<\/script>/);
+        var st=JSON.parse(m[1]);
+        if(!st||!Array.isArray(st.students))throw 0;
+        if(state.adminHash)st.adminHash=state.adminHash;
+        state=Object.assign(clone(PUB),st);ui.week=state.currentWeek;touch();render();flash('تم الاستيراد. راجع البيانات ثم انشر التعديلات.',7000);
+      }catch(err){flash('الملف غير صالح');}
+    };
+    fr.readAsText(f);return;
+  }
   if(d.sn){var s=state.students.find(function(x){return x.id===d.sn;});if(s){s.name=el.value.trim()||s.name;touch();renderBar();}}
   else if(d.st){var s2=state.students.find(function(x){return x.id===d.st;});if(s2){s2.team=+el.value;touch();render();}}
   else if(d.tn!==undefined){state.teams[+d.tn]=el.value.trim()||state.teams[+d.tn];touch();renderBar();}
